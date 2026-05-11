@@ -1,0 +1,1933 @@
+{
+  "name": "QuoteFlow AI",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Gmail Trigger').item.json.snippet }}",
+        "options": {
+          "systemMessage": "=You are an AI assistant that extracts structured data from industrial customer inquiries.\n\nReturn ONLY valid JSON in the following format:\n\n{\n  \"quote_id\": \"{{ $json['Quote Number'] }}\"\"\n  \"customer_name\": \"\",\n  \"company_name\": \"\",\n  \"email\": \"\",\n  \"delivery_date\": \"\",\n  \"delivery_location\": \"\",\n  \"products\": [\n    {\n      \"product\": \"\",\n      \"quantity\": \"\",\n      \"unit\": \"\",\n      \"specifications\": \"\"\n    }\n  ],\n  \"missing_fields\": []\n}\n\nRULES:\n1. Extract ALL products mentioned in the inquiry.\n2. Each product must be a separate object inside \"products\".\n3. Do NOT merge multiple products into one.\n4. If quantity/specs missing for a product, leave them as \"\".\n5. Do NOT guess missing values.\n6. If NO product is clearly mentioned, return an empty \"products\" array.\n7. Add missing top-level fields to \"missing_fields\".\n8. Return ONLY valid JSON.\n\nEXAMPLE:\n\nInput:\n\"We require 100 GI pipes and 30 gate valves for Pune.\"\n\nOutput:\n{\n  \"quote_id\": \"{{ $json['Quote Number'] }}\",\n  \"customer_name\": \"\",\n  \"company_name\": \"\",\n  \"email\": \"\",\n  \"delivery_date\": \"\",\n  \"delivery_location\": \"Pune\",\n  \"products\": [\n    {\n      \"product\": \"GI pipes\",\n      \"quantity\": \"100\",\n      \"unit\": \"\",\n      \"specifications\": \"\"\n    },\n    {\n      \"product\": \"gate valves\",\n      \"quantity\": \"30\",\n      \"unit\": \"\",\n      \"specifications\": \"\"\n    }\n  ],\n  \"missing_fields\": [\"customer_name\", \"company_name\", \"email\", \"delivery_date\"]\n}\n\nNow extract from the following inquiry: "
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        288,
+        -336
+      ],
+      "id": "68c856c5-5f2c-4245-81d6-087de96a3b26",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        368,
+        -112
+      ],
+      "id": "c610ad20-c75e-4187-8f28-e32abebbb853",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "8vD2WWkrTKZjQuyF",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "var result = JSON.parse($input.first().json.output);\n\nconst text = $('Gmail Trigger').first().json.From;\nconst matches = text.match(/<([^>]+)>/g);\n\n// Matches will be: [\"<test>\", \"<content>\"]\n// To remove the brackets:\nconst res = matches.map(m => m.replace(/<|>/g, ''));\n\nresult.email = res[0];\n\nreturn [{ json: result }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        -240
+      ],
+      "id": "4910b346-c26c-4fd4-a77d-e3100d45840a",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fbe00858-77e8-4c0d-a9b2-00b96ab9d14a",
+              "leftValue": "={{ $('Code in JavaScript').item.json.missing_fields.length}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "9295ba53-9f59-4fc9-b8c0-d3818aa2a8af",
+              "leftValue": "={{ $json.missing_fields }}",
+              "rightValue": "",
+              "operator": {
+                "type": "array",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1200,
+        -240
+      ],
+      "id": "a212c5f6-2ad2-42cb-97c9-0389a4588bce",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Code in JavaScript').first().json;\n\nfunction encode(value) {\n  return encodeURIComponent(value || \"\");\n}\n\n// Convert product array to readable string\nconst products = (data.products || []).map(p => {\n  return `${p.quantity || \"\"} ${p.product || \"\"} ${p.specifications || \"\"}`.trim();\n}).join(\", \");\n\nconst baseUrl = \"https://docs.google.com/forms/d/e/1FAIpQLSfRZFVuyUCLGgCCNGWL8bQQ191Wkuw7cwgIwGnpnqSjoc2RkA/viewform?usp=pp_url\";\n\nconst params = [\n  \"entry.958235835=\" + encode($input.first().json.quote_id),\n  \"entry.350650412=\" + encode(data.customer_name),\n  \"entry.1527956893=\" + encode(data.company_name),\n  \"entry.521148709=\" + encode(products),\n  \"entry.1315103597=\" + encode(data.delivery_date),\n  \"entry.1775243247=\" + encode(data.delivery_location)\n];\n\nreturn [{\n  json: {\n    form_url: baseUrl + \"&\" + params.join(\"&\")\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        -48
+      ],
+      "id": "e3d33deb-a7a2-4b4d-a690-acbf68d559e2",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Code in JavaScript').item.json.email }}",
+        "subject": "Additional Information Required",
+        "emailType": "text",
+        "message": "=Hi, \n\nTo process your request, we need the following details:  \n\n{{ $('Code in JavaScript').item.json.missing_fields.join(\",\") }}\n\nPlease fill the form provided below\n{{ $json.form_url }}\n\nRegards, \nSharma Industrial Supplies",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1648,
+        -48
+      ],
+      "id": "37107172-44f5-4cd4-ab48-73e4283ff7b2",
+      "name": "Send a message",
+      "webhookId": "2bd66779-81bf-459e-9d1d-36818a0f77fc",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "mVsKzglPw9W5MoQN",
+          "name": "rishabh2412"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": []
+        },
+        "documentId": {
+          "__rl": true,
+          "value": "16XNwfjUyXtuw1KlOd4NjxJI71SaFAtJzCIRhOPZg6aI",
+          "mode": "list",
+          "cachedResultName": "Customer Response",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16XNwfjUyXtuw1KlOd4NjxJI71SaFAtJzCIRhOPZg6aI/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1827813713,
+          "mode": "list",
+          "cachedResultName": "Form Responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16XNwfjUyXtuw1KlOd4NjxJI71SaFAtJzCIRhOPZg6aI/edit#gid=1827813713"
+        },
+        "event": "rowAdded",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [
+        352,
+        64
+      ],
+      "id": "8752249c-3a14-4823-acd3-f68d9590acf4",
+      "name": "Google Sheets Trigger",
+      "credentials": {
+        "googleSheetsTriggerOAuth2Api": {
+          "id": "kHjNAz9WaRq5A4RC",
+          "name": "rishabh.sharma"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json['Products and Specifications'] }}",
+        "options": {
+          "systemMessage": "=You are an AI that extracts structured product data from a single text field.\n\nInput will contain multiple products in one sentence.\n\nReturn ONLY valid JSON in this format:\n\n{\n  \"quote_id\": \"{{ $json.Quote_ID }}\"\n  \"products\": [\n    {\n      \"product\": \"\",\n      \"quantity\": \"\",\n      \"specifications\": \"\"\n    }\n  ]\n}\n\nRULES:\n1. Extract ALL products mentioned\n2. Separate each product clearly\n3. Do NOT merge products\n4. Quantity must be numeric if available\n5. Do NOT guess missing values\n6. Return only JSON\n\nExample:\n\nInput:\n\"100 GI pipes, 30 gate valves\"\n\nOutput:\n{\n  \"quote_id\": \"{{ $json.Quote_ID }}\",\n  \"products\": [\n    { \"product\": \"GI pipes\", \"quantity\": \"100\", \"specifications\": \"\" },\n    { \"product\": \"gate valves\", \"quantity\": \"30\", \"specifications\": \"\" }\n  ]\n} "
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        640,
+        64
+      ],
+      "id": "0091ca14-9477-4e54-9fb7-b02156378db7",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        720,
+        288
+      ],
+      "id": "13862abc-558c-4f9a-aaae-0c7d3904fb3f",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "8vD2WWkrTKZjQuyF",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    customer_name: $('Google Sheets Trigger').first().json.Name,\n    company_name: $('Google Sheets Trigger').first().json['Company Name'],\n    delivery_date: $('Google Sheets Trigger').first().json['Delivery Date'],\n    delivery_location: $('Google Sheets Trigger').first().json['Delivery Location'],\n    products: JSON.parse($input.first().json.output)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        64
+      ],
+      "id": "594eb676-4156-460c-9e1a-7aaa9c7a6d33",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn [{\n  json: {\n    quote_id: input.products.quote_id,\n    ...input,\n    products: input.products.products\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        -240
+      ],
+      "id": "e14701ca-be3e-49dc-8784-95ba96d788f7",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "products",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1856,
+        -240
+      ],
+      "id": "6699c161-988f-4fad-a977-f0670f52e741",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2080,
+        -240
+      ],
+      "id": "effc05b5-e33b-428a-9b51-863f2ed10c9a",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "054561ee-f0df-451a-a047-c85ad70008a3",
+              "name": "product",
+              "value": "={{ $json.product.toLowerCase().trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "c5a0fec1-898c-473e-a720-7f261cc2cd6f",
+              "name": "quantity",
+              "value": "={{ $json.quantity }}",
+              "type": "string"
+            },
+            {
+              "id": "12eaa9a3-2bfc-435c-89ec-d770ca7bed79",
+              "name": "specifications",
+              "value": "={{ $json.specifications }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2304,
+        -160
+      ],
+      "id": "695aaee6-46b1-41e4-abae-ff735aaf925a",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1djnJQhv_3_JT6ixXuugFm1SboFYUvj21LWjwO2lU9oY",
+          "mode": "list",
+          "cachedResultName": "SUPPLIERS",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1djnJQhv_3_JT6ixXuugFm1SboFYUvj21LWjwO2lU9oY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1djnJQhv_3_JT6ixXuugFm1SboFYUvj21LWjwO2lU9oY/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2528,
+        -160
+      ],
+      "id": "a8c1b901-e7ba-4578-93bd-1f36face9895",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "t9iLbwJV3Suwlkn0",
+          "name": "rishabh.sharma"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "var items = []\nfor (const item of $input.all()) {\n  const prod = item.json.product.toLocaleLowerCase().trim();\n  if(prod == $('Edit Fields1').first().json.product) {\n    items.push(item)\n  }\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2752,
+        -160
+      ],
+      "id": "728758da-5d9b-4880-9e20-7365c5c07afd",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "sortFieldsUi": {
+          "sortField": [
+            {
+              "fieldName": "price"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.sort",
+      "typeVersion": 1,
+      "position": [
+        4032,
+        -192
+      ],
+      "id": "7e45a65b-6862-4317-99c4-c6a4cf4ca348",
+      "name": "Sort"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        4256,
+        -192
+      ],
+      "id": "b0ce168e-a84d-49c4-ae5d-f371830cfbd7",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "jsCode": "const quantity = Number($('Edit Fields1').first().json.quantity || 0);\nconst cost = Number($input.first().json.price || 0);\n\nconst margin = 0.2;\n\nconst selling_price_per_unit = Math.round(cost * (1 + margin));\nconst total_price = selling_price_per_unit * quantity;\n\nreturn [\n  {\n    json: {\n      product: $input.first().json.product,\n      quantity: $('Edit Fields1').first().json.quantity,\n      supplier_name: $input.first().json.supplier_name,\n      cost: cost,\n      selling_price_per_unit: selling_price_per_unit,\n      total_price: total_price\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4480,
+        -160
+      ],
+      "id": "04051c58-01e5-4ff5-81fe-5be7e041ad53",
+      "name": "Code in JavaScript5"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e8e47585-a21c-4929-b76a-f4d88f55bdd1",
+              "leftValue": "={{ $json.supplier_name }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3392,
+        -160
+      ],
+      "id": "1fc3f7e9-b6d1-4457-9acc-e89a8ebde1fe",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const quoted_products = $input.all().map(item => item.json);\n\nconst grand_total = quoted_products.reduce((sum, product) => {\n  return sum + Number(product.total_price || 0);\n}, 0);\n\nreturn [\n  {\n    json: {\n      quote_id: $('Code in JavaScript3').first().json.quote_id,\n      customer_name: $('Code in JavaScript3').first().json.customer_name,\n      email: $('Google Sheets Trigger').first().json[\"Email Address\"] ,\n      company_name: $('Code in JavaScript3').first().json.company_name,\n      delivery_location: $('Code in JavaScript3').first().json.delivery_location,\n      delivery_date: $('Code in JavaScript3').first().json.delivery_date,\n      quoted_products,\n      grand_total\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2304,
+        -384
+      ],
+      "id": "899f2ee5-8e54-4207-a4fd-458a710c8683",
+      "name": "Code in JavaScript6"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Code in JavaScript6').item.json.email }}",
+        "subject": "=Qutoation for  {{ $('Code in JavaScript6').item.json.customer_name }}",
+        "emailType": "text",
+        "message": "=Dear {{ $('Google Sheets Trigger').item.json.Name }},\n\nPlease find the qutotation for items requested on {{ $('Google Sheets Trigger').item.json.Timestamp }} for {{ $('Google Sheets Trigger').item.json['Company Name'] }} attached with this email.\n\nPlease let us know if you would like to proceed.\n\nRegards,\nSharma Industrial Supplies Pvt Ltd",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {}
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        4480,
+        -400
+      ],
+      "id": "ac09c6fd-13d5-4c7e-a504-9c4d9b40ef63",
+      "name": "Send a message1",
+      "webhookId": "dbbf5d3d-4e93-41c0-932a-582cc41e89d2",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "mVsKzglPw9W5MoQN",
+          "name": "rishabh2412"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "rishabh.sharma24121997@gmail.com",
+        "subject": "Could not find suppliers",
+        "emailType": "text",
+        "message": "=Hi,\n\nFor \"{{ $json.product }}, the agent was not able to find any suppliers. Please add any supplier details for the products in this sheet\n\nhttps://docs.google.com/spreadsheets/d/1djnJQhv_3_JT6ixXuugFm1SboFYUvj21LWjwO2lU9oY/edit?gid=0#gid=0",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        3568,
+        160
+      ],
+      "id": "e066ea14-fd50-41ca-88dc-23b56f4e88e1",
+      "name": "Send a message2",
+      "webhookId": "5401ff59-051f-4014-a256-893d540745fa",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "mVsKzglPw9W5MoQN",
+          "name": "rishabh2412"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst productsHtml = data.quoted_products.map((p) => `\n<tr>\n\n    <td style=\"\n        padding: 14px;\n        border-bottom: 1px solid #ddd;\n    \">\n        ${p.quantity}\n    </td>\n\n    <td style=\"\n        padding: 14px;\n        border-bottom: 1px solid #ddd;\n    \">\n        <b>${p.product}</b><br>\n\n        <span style=\"\n            color: #777;\n            font-size: 12px;\n        \">\n            Supplier: ${p.supplier_name}\n        </span>\n    </td>\n\n    <td style=\"\n        padding: 14px;\n        border-bottom: 1px solid #ddd;\n        text-align: right;\n    \">\n        ₹${Number(p.selling_price_per_unit).toLocaleString()}\n    </td>\n\n    <td style=\"\n        padding: 14px;\n        border-bottom: 1px solid #ddd;\n        text-align: right;\n    \">\n        ₹${Number(p.total_price).toLocaleString()}\n    </td>\n\n</tr>\n`).join(\"\");\n\nconst html = `\n<!DOCTYPE html>\n<html>\n\n<body style=\"\n    font-family: Arial, sans-serif;\n    margin: 40px;\n    color: #333;\n\">\n\n    <!-- HEADER -->\n    <table style=\"\n        width: 100%;\n        border-collapse: collapse;\n        margin-bottom: 40px;\n    \">\n\n        <tr>\n\n            <!-- COMPANY INFO -->\n            <td style=\"vertical-align: top;\">\n\n                <h2 style=\"\n                    margin: 0;\n                    color: #1d4f91;\n                    font-size: 28px;\n                \">\n                    Sharma Industrial Suppliers\n                </h2>\n\n                <p style=\"\n                    margin-top: 10px;\n                    line-height: 1.6;\n                    color: #555;\n                    font-size: 14px;\n                \">\n                    Industrial Supply & Procurement Solutions<br>\n                    Gurgaon, Haryana<br>\n                </p>\n\n            </td>\n\n            <!-- LOGO -->\n            <td style=\"\n                text-align: right;\n                vertical-align: top;\n            \">\n\n                <img \n                    src=\"https://i.postimg.cc/c6png29G/sacha-dubois.png\"\n                    style=\"\n                        height: 65px;\n                        object-fit: contain;\n                    \"\n                >\n\n            </td>\n\n        </tr>\n\n    </table>\n\n    <!-- TITLE -->\n    <table style=\"\n        width: 100%;\n        margin-bottom: 40px;\n    \">\n\n        <tr>\n\n            <!-- BILL TO -->\n            <td style=\"vertical-align: top; width: 50%;\">\n\n                <p style=\"\n                    color: #1d4f91;\n                    font-weight: bold;\n                    margin-bottom: 10px;\n                \">\n                    Bill To\n                </p>\n\n                <h3 style=\"\n                    margin: 0;\n                    color: #444;\n                \">\n                    ${data.customer_name}\n                </h3>\n\n                <p style=\"\n                    margin-top: 10px;\n                    line-height: 1.6;\n                    font-size: 14px;\n                    color: #555;\n                \">\n                    ${data.company_name}<br>\n                    ${data.delivery_location}<br>\n                    ${data.email}\n                </p>\n\n            </td>\n\n            <!-- QUOTE DETAILS -->\n            <td style=\"\n                vertical-align: top;\n                text-align: right;\n                width: 50%;\n            \">\n\n                <h1 style=\"\n                    margin: 0;\n                    color: #1d4f91;\n                    font-size: 42px;\n                    letter-spacing: 2px;\n                \">\n                    QUOTATION\n                </h1>\n\n                <table style=\"\n                    margin-top: 20px;\n                    margin-left: auto;\n                    font-size: 14px;\n                    line-height: 2;\n                \">\n\n                    <tr>\n                        <td style=\"\n                            font-weight: bold;\n                            color: #1d4f91;\n                            padding-right: 20px;\n                        \">\n                            Quote #\n                        </td>\n\n                        <td>\n                            ${data.quote_id}\n                        </td>\n                    </tr>\n\n                    <tr>\n                        <td style=\"\n                            font-weight: bold;\n                            color: #1d4f91;\n                            padding-right: 20px;\n                        \">\n                            Quote Date\n                        </td>\n\n                        <td>\n                            ${new Date().toLocaleDateString('en-GB')}\n                        </td>\n                    </tr>\n\n                    <tr>\n                        <td style=\"\n                            font-weight: bold;\n                            color: #1d4f91;\n                            padding-right: 20px;\n                        \">\n                            Delivery Date\n                        </td>\n\n                        <td>\n                            ${data.delivery_date}\n                        </td>\n                    </tr>\n\n                </table>\n\n            </td>\n\n        </tr>\n\n    </table>\n\n    <!-- PRODUCT TABLE -->\n    <table style=\"\n        width: 100%;\n        border-collapse: collapse;\n        margin-bottom: 30px;\n    \">\n\n        <!-- HEADER -->\n        <tr style=\"\n            background: #1d4f91;\n            color: white;\n        \">\n\n            <th style=\"\n                padding: 14px;\n                text-align: left;\n                font-size: 14px;\n            \">\n                QTY\n            </th>\n\n            <th style=\"\n                padding: 14px;\n                text-align: left;\n                font-size: 14px;\n            \">\n                Description\n            </th>\n\n            <th style=\"\n                padding: 14px;\n                text-align: right;\n                font-size: 14px;\n            \">\n                Unit Price\n            </th>\n\n            <th style=\"\n                padding: 14px;\n                text-align: right;\n                font-size: 14px;\n            \">\n                Amount\n            </th>\n\n        </tr>\n\n        ${productsHtml}\n\n    </table>\n\n    <!-- TOTALS -->\n    <table style=\"\n        width: 40%;\n        margin-left: auto;\n        border-collapse: collapse;\n        margin-bottom: 40px;\n    \">\n\n        <tr>\n\n            <td style=\"\n                padding: 10px;\n                border-bottom: 1px solid #ddd;\n            \">\n                Subtotal\n            </td>\n\n            <td style=\"\n                padding: 10px;\n                text-align: right;\n                border-bottom: 1px solid #ddd;\n            \">\n                ₹${Number(data.grand_total).toLocaleString()}\n            </td>\n\n        </tr>\n\n        <tr>\n\n            <td style=\"\n                padding: 10px;\n                color: #1d4f91;\n                font-weight: bold;\n                border-top: 2px solid #1d4f91;\n            \">\n                Total (INR)\n            </td>\n\n            <td style=\"\n                padding: 10px;\n                text-align: right;\n                color: #1d4f91;\n                font-weight: bold;\n                border-top: 2px solid #1d4f91;\n            \">\n                ₹${Number(data.grand_total).toLocaleString()}\n            </td>\n\n        </tr>\n\n    </table>\n\n    <!-- TERMS -->\n    <div style=\"\n        margin-top: 40px;\n        font-size: 14px;\n        color: #555;\n    \">\n\n        <h3 style=\"\n            color: #1d4f91;\n            margin-bottom: 10px;\n        \">\n            Terms and Conditions\n        </h3>\n\n        <p>\n            • Payment due within 14 days.<br>\n            • Delivery subject to supplier availability.<br>\n            • Prices valid for 7 days from quotation date.\n        </p>\n\n    </div>\n\n    <!-- SIGNATURE -->\n    <div style=\"\n        margin-top: 80px;\n        text-align: right;\n    \">\n\n        <div style=\"\n            width: 220px;\n            margin-left: auto;\n            border-top: 1px solid #888;\n            padding-top: 10px;\n            text-align: center;\n            color: #1d4f91;\n            font-size: 13px;\n        \">\n            Authorized Signature\n        </div>\n\n        <div style=\"\n          margin-top: 60px;\n          padding-top: 15px;\n          border-top: 1px solid #e0e0e0;\n          text-align: center;\n          font-size: 11px;\n          color: #888;\n          line-height: 1.6;\n      \">\n      \n          Generated using <b>QuoteFlow AI</b><br>\n      \n          AI-Assisted Quotation Operations Platform<br>\n      \n          support@quoteflow.ai | www.quoteflow.ai\n      \n      </div>\n\n    </div>\n\n</body>\n\n</html>\n`;\n\nreturn [\n  {\n    json: {\n      html\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2528,
+        -368
+      ],
+      "id": "bb7e2690-97cd-441e-a0e6-0f7da4f6428e",
+      "name": "Code in JavaScript7"
+    },
+    {
+      "parameters": {
+        "html_content": "={{ $('HTML').item.json.html }}",
+        "output_format": "file",
+        "output_filename": "={{ $json.fileName }}"
+      },
+      "type": "n8n-nodes-htmlcsstopdf.htmlcsstopdf",
+      "typeVersion": 1,
+      "position": [
+        4256,
+        -400
+      ],
+      "id": "d431a803-a5b5-4bed-85ea-6b0851bb0bc1",
+      "name": "Convert HTML to PDF",
+      "credentials": {
+        "htmlcsstopdfApi": {
+          "id": "TjrdnWgQKUj4ApSw",
+          "name": "HTML to PDF account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const customer = ($('Code in JavaScript6').first().json.company_name || \"Customer\")\n  .replace(/\\s+/g, \"_\");\n\nconst today = new Date();\n\nconst day = String(today.getDate()).padStart(2, \"0\");\nconst month = String(today.getMonth() + 1).padStart(2, \"0\");\nconst year = today.getFullYear();\n\nconst formattedDate = `${day}-${month}-${year}`;\n\nconst fileName = `${customer}_${formattedDate}.pdf`;\n\nreturn {fileName};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4032,
+        -400
+      ],
+      "id": "7e6f330c-c790-4e12-981e-aec5fb9129d7",
+      "name": "Code in JavaScript8"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs",
+          "mode": "list",
+          "cachedResultName": "Qutations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Quote Number": "={{ \n\"Q-\" + \n($json.company_name || \"COMP\").substring(0,4).toUpperCase() + \n\"-\" + \n$now.format(\"yyyy\") + \n\"-\" + \nMath.floor(Math.random() * 10000)\n}}",
+            "Last Updated": "={{ $now.format(\"dd/mm/yyyy\") }}",
+            "Customer": "={{ $json.company_name || \"COMP\" }}",
+            "Status": "Enquiry",
+            "Enquiry Time": "={{ $now.format('dd/mm/yyyy hh:mm:ss') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Quote Number",
+              "displayName": "Quote Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer",
+              "displayName": "Customer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Amount",
+              "displayName": "Amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Feedback",
+              "displayName": "Feedback",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Sales Call Summary",
+              "displayName": "Sales Call Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Enquiry Time",
+              "displayName": "Enquiry Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Quote Generated",
+              "displayName": "Quote Generated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        64,
+        -240
+      ],
+      "id": "192e81f9-aa94-4ed5-9b6a-22bf1cbca907",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "t9iLbwJV3Suwlkn0",
+          "name": "rishabh.sharma"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs",
+          "mode": "list",
+          "cachedResultName": "Qutations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Quote Number": "={{ $json.quote_id }}",
+            "Last Updated": "={{ $now.format(\"dd/mm/yyyy\") }}",
+            "Customer": "={{ $('Code in JavaScript2').item.json.company_name }}",
+            "Status": "Form Filled"
+          },
+          "matchingColumns": [
+            "Quote Number"
+          ],
+          "schema": [
+            {
+              "id": "Quote Number",
+              "displayName": "Quote Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer",
+              "displayName": "Customer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Amount",
+              "displayName": "Amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Feedback",
+              "displayName": "Feedback",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Sales Call Summary",
+              "displayName": "Sales Call Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1632,
+        -400
+      ],
+      "id": "b4521bdb-880c-41ed-9277-9dfb96100f42",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "t9iLbwJV3Suwlkn0",
+          "name": "rishabh.sharma"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs",
+          "mode": "list",
+          "cachedResultName": "Qutations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Quote Number": "={{ $json.quote_id }}",
+            "Last Updated": "={{ $now.format(\"dd/mm/yyyy\") }}",
+            "Customer": "={{ $json.company_name }}",
+            "Amount": "={{ $json.grand_total }}",
+            "Status": "Awaiting Sales Call"
+          },
+          "matchingColumns": [
+            "Quote Number"
+          ],
+          "schema": [
+            {
+              "id": "Quote Number",
+              "displayName": "Quote Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer",
+              "displayName": "Customer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Amount",
+              "displayName": "Amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Feedback",
+              "displayName": "Feedback",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Sales Call Summary",
+              "displayName": "Sales Call Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2272,
+        -608
+      ],
+      "id": "9938d317-b9d8-499e-92d7-bea1d086b19f",
+      "name": "Append or update row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "t9iLbwJV3Suwlkn0",
+          "name": "rishabh.sharma"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "html": "<!DOCTYPE html>\n\n{{ $json.html }}"
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        2752,
+        -368
+      ],
+      "id": "14dd3628-4ba1-4069-b6f0-72a0951f8048",
+      "name": "HTML"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs",
+          "mode": "list",
+          "cachedResultName": "Qutations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Quote Number": "={{ $('Code in JavaScript6').item.json.quote_id }}",
+            "Last Updated": "={{ $now.format('dd/mm/yyyy') }}",
+            "Customer": "={{ $('Code in JavaScript6').item.json.company_name }}",
+            "Feedback": "={{ $json.data.text }}",
+            "Status": "Call Completed"
+          },
+          "matchingColumns": [
+            "Quote Number"
+          ],
+          "schema": [
+            {
+              "id": "Quote Number",
+              "displayName": "Quote Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer",
+              "displayName": "Customer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Amount",
+              "displayName": "Amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Feedback",
+              "displayName": "Feedback",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3840,
+        -400
+      ],
+      "id": "19ac5f39-6df3-4999-8c40-cd057133b6e3",
+      "name": "Append or update row in sheet2",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "t9iLbwJV3Suwlkn0",
+          "name": "rishabh.sharma"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f7d35fea-b788-4b49-a002-078df034c182",
+              "leftValue": "={{ $json.data.approved }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3600,
+        -384
+      ],
+      "id": "f74902ca-9a29-4ed5-8e8c-6c44c4322159",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json }}",
+        "options": {
+          "systemMessage": "Generate an INTERNAL sales call preparation summary for a B2B industrial supplier sales team.\n\nSTRICT RULES:\n1. This summary is INTERNAL ONLY.\n2. Do NOT generate customer-facing language.\n3. Be concise, practical, and operational.\n4. Use ONLY the provided information.\n5. Do NOT hallucinate specifications, pricing, or delivery details.\n6. Clearly mention if information is missing.\n\nInclude the following sections:\n\n1. Customer Summary\n2. Products Requested \n3. Missing Information\n4. Suggested Questions for Customer\n5. Risks / Concerns\n\nKeep formatting simple and easy to scan quickly during a sales call.\n\nFormat the entire response as clean HTML for email rendering and keep all items aligned to the left."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        2528,
+        -560
+      ],
+      "id": "afdcb795-6783-4740-a065-a9de7fae4278",
+      "name": "AI Agent3"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        2528,
+        -720
+      ],
+      "id": "e9b8f8cb-5fbc-4e45-b9f3-d3c4e94b6a3a",
+      "name": "OpenAI Chat Model3",
+      "credentials": {
+        "openAiApi": {
+          "id": "8vD2WWkrTKZjQuyF",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs",
+          "mode": "list",
+          "cachedResultName": "Qutations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Quote Number": "={{ $('Code in JavaScript6').item.json.quote_id }}",
+            "Last Updated": "={{ $now.format('dd/mm/yyyy') }}",
+            "Sales Call Summary": "={{ $json.html }}"
+          },
+          "matchingColumns": [
+            "Quote Number"
+          ],
+          "schema": [
+            {
+              "id": "Quote Number",
+              "displayName": "Quote Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer",
+              "displayName": "Customer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Amount",
+              "displayName": "Amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Feedback",
+              "displayName": "Feedback",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Sales Call Summary",
+              "displayName": "Sales Call Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3296,
+        -560
+      ],
+      "id": "319bd588-b36d-400d-85e4-fb9654198ebf",
+      "name": "Append or update row in sheet3",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "t9iLbwJV3Suwlkn0",
+          "name": "rishabh.sharma"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "sendTo": "rishabh.sharma24121997@gmail.com",
+        "subject": "=Sales Call Required -  {{ $json.Customer }}",
+        "message": "=A new inquiry requires customer confirmation before quotation.\n\nStatus: AWAITING_CALL\n\nPlease review the call preparation summary and contact the customer.\n\n{{ $json[\"Sales Call Summary\"] }}\n\nAfter completing the call, update the status to APPROVED.",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        3392,
+        -384
+      ],
+      "id": "1e8f4e50-d6a3-42e3-b5a5-0915cde380d5",
+      "name": "Send message and wait for response",
+      "webhookId": "2b95b5d6-a3c4-4bed-8e34-b5b1ea9da7b6",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "mVsKzglPw9W5MoQN",
+          "name": "rishabh2412"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs",
+          "mode": "list",
+          "cachedResultName": "Qutations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Quote Number",
+              "lookupValue": "={{ $('Code in JavaScript6').item.json.quote_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3136,
+        -368
+      ],
+      "id": "e7c2e739-96b5-46a5-85f4-ef77f99e4bf0",
+      "name": "Get row(s) in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "t9iLbwJV3Suwlkn0",
+          "name": "rishabh.sharma"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs",
+          "mode": "list",
+          "cachedResultName": "Qutations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/16Yb2rf0ayAHhiPWUbvTC0mLlwyA_RNHfVpvwRj2Ruhs/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Quote Number": "={{ $('Code in JavaScript6').item.json.quote_id }}",
+            "Last Updated": "={{ $now.format('dd/mm/yyyy') }}",
+            "Quote Generated": "=  {{ $now.format(\"dd/mm/yyyy hh:mm\") }}",
+            "Sales Call Summary": " ",
+            "Status": "Completed"
+          },
+          "matchingColumns": [
+            "Quote Number"
+          ],
+          "schema": [
+            {
+              "id": "Quote Number",
+              "displayName": "Quote Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer",
+              "displayName": "Customer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Amount",
+              "displayName": "Amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Feedback",
+              "displayName": "Feedback",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Sales Call Summary",
+              "displayName": "Sales Call Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Enquiry Time",
+              "displayName": "Enquiry Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Quote Generated",
+              "displayName": "Quote Generated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4688,
+        -384
+      ],
+      "id": "61532ee9-d4c9-4fd8-a5d9-0d55ff0ba86b",
+      "name": "Append or update row in sheet4",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "t9iLbwJV3Suwlkn0",
+          "name": "rishabh.sharma"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "hour": 18
+            }
+          ]
+        },
+        "filters": {}
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -144,
+        -240
+      ],
+      "id": "0f69a6d1-ba5b-44bb-b05d-0b4796f96a87",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "mVsKzglPw9W5MoQN",
+          "name": "rishabh2412"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "html": "{{ $json.formatted_html }}"
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        3104,
+        -560
+      ],
+      "id": "cae65bba-8c92-4555-8760-a9560d784204",
+      "name": "HTML1"
+    },
+    {
+      "parameters": {
+        "jsCode": "let html = $json.output;\n\n// Remove markdown wrappers\nhtml = html.replace(/```html/g, '');\nhtml = html.replace(/```/g, '');\n\n// Add clean body styling\nhtml = html.replace(\n  '<body>',\n  `<body style=\"font-family: Arial, sans-serif; color: #333; line-height: 1.5; text-align: left; padding: 20px;\">`\n);\n\n// Style unordered lists\nhtml = html.replaceAll(\n  '<ul>',\n  '<ul style=\"padding-left: 20px; margin-top: 5px;\">'\n);\n\n// Style headings\nhtml = html.replaceAll(\n  '<h3>',\n  '<h3 style=\"margin-top: 20px; color: #222;\">'\n);\n\nreturn [\n  {\n    json: {\n      formatted_html: html\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        -560
+      ],
+      "id": "cd6a0919-0c94-4651-981f-86725fbb44c8",
+      "name": "Code in JavaScript9"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript6",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript5": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Sort",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript6": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript7",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append or update row in sheet1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Agent3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript7": {
+      "main": [
+        [
+          {
+            "node": "HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript8": {
+      "main": [
+        [
+          {
+            "node": "Convert HTML to PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert HTML to PDF": {
+      "main": [
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet": {
+      "main": [
+        []
+      ]
+    },
+    "HTML": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "OpenAI Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent3",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent3": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript9",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet3": {
+      "main": [
+        []
+      ]
+    },
+    "Send message and wait for response": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Send message and wait for response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message1": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet4": {
+      "main": [
+        []
+      ]
+    },
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML1": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript9": {
+      "main": [
+        [
+          {
+            "node": "HTML1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "abf3b4bd-d639-4ac5-afd8-42a62ff3571a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8aab2995f398d9e023e68c9b137b3e0e4f4e9364981d7cd2a15855daa0a21022"
+  },
+  "id": "lGGzZpMqABfLGl1l",
+  "tags": []
+}
